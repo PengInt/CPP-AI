@@ -15,11 +15,11 @@ Description:
 
 #include <iostream>
 #include <vector>
-#include <variant>
 #include <random>
 #include <string>
 #include <exception>
 #include <cmath>
+#include <cstdlib>
 
 
 using namespace std;
@@ -123,4 +123,36 @@ int main() {
 	for (float r : result) {
 		cout << r << "\n" << flush;
 	}
+	float BOT_X = 0;
+	float BOT_Y = 0;
+	float GOOD_X = 2;
+	float GOOD_Y = 3;
+	float BAD_X = -2;
+	float BAD_Y = 4;
+	system("cls");
+	int botx_r = round(BOT_X);
+	int boty_r = round(BOT_Y);
+	int goodx_r = round(GOOD_X);
+	int goody_r = round(GOOD_Y);
+	int badx_r = round(BAD_X);
+	int bady_r = round(BAD_Y);
+	string toPrint = "+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+";
+	for (int x = -10; x <= 10; x++) {
+		toPrint += "|\n+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+\n";
+		for (int y = 10; y >= -10; y--) {
+			toPrint += "|";
+			if (botx_r == x && boty_r == y) {
+				toPrint += "00";
+			} else if (badx_r == x && bady_r == y) {
+				toPrint += "--";
+			} else if (goodx_r == x && goody_r == y) {
+				toPrint += "++";
+			} else {
+				toPrint += "  ";
+			}
+		}
+	}
+	toPrint += "|\n+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+";
+	cout << toPrint << flush;
+	return 0;
 }
