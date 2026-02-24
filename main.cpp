@@ -1,7 +1,7 @@
 /*
 Author: Penguin Interactive
 Date: 19.02.2026 ---> Now
-Version 0.0.1
+Version 0.2.1
 
 Description:
 	A 'simple' neural network that tries to stay away from one target and keep close to another.
@@ -20,9 +20,21 @@ Description:
 #include <exception>
 #include <cmath>
 #include <cstdlib>
+#include <numbers>
+#include <format>
+
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
+#include "PerlinNoise.hpp"
+
 
 
 using namespace std;
+
+typedef vector<int> Pixel;
+typedef vector<Pixel> Row;
+typedef vector<Row> Image3D;
 
 float RANDOM(float min, float max, int precision) {
 	static random_device rd;
@@ -34,17 +46,67 @@ float RANDOM(float min, float max, int precision) {
 	float p = pow(10.0f, precision);
 	return round(rNum * p) / p;
 }
+void FRANDOM(vector<float>& vec, float min, float max) {
+	static random_device rd;
+	static mt19937 gen(rd());
+	uniform_real_distribution<float> dist(min, max);
 
+	for (auto& val : vec) {
+		val = dist(gen);
+	}
+}
+
+float clear() {
+	#ifdef _WIN32
+		float random_number = std::system("cls"); // For Windows
+	#else
+		float random_number = std::system("clear"); // Assume POSIX (Linux/macOS)
+	#endif
+	return random_number;
+}
+
+Image3D pngToVector(const char* filename) {
+	int width, height, channels;
+
+	// Load image data (forces 3 channels: RGB)
+	unsigned char* data = stbi_load(filename, &width, &height, &channels, 3);
+
+	if (data == nullptr) {
+		cerr << "Error: Could not load image " << filename << endl;
+		return {};
+	}
+
+	// Initialize the 3D vector: [width][height][3]
+	Image3D imgVector(width, Row(height, Pixel(3)));
+
+	for (int x = 0; x < width; ++x) {
+		for (int y = 0; y < height; ++y) {
+			// stbi_load provides data in a flat row-major array [y][x][channels]
+			// We map that to your requested [x][y][channel] format
+			int pixel_index = (y * width + x) * 3;
+
+			imgVector[x][y][0] = static_cast<int>(data[pixel_index]);     // R
+			imgVector[x][y][1] = static_cast<int>(data[pixel_index + 1]); // G
+			imgVector[x][y][2] = static_cast<int>(data[pixel_index + 2]); // B
+		}
+	}
+
+	// Free the memory allocated by stb_image
+	stbi_image_free(data);
+
+	return imgVector;
+}
 
 
 class Node {
 public:
-	float Value, Bias;
+	float Value, Bias, Delta;
 	int Index, Layer;
 	string Type;
 	Node(int index, int layer, string type) {
 		Value = 0;
 		Bias = 0;
+		Delta = 0;
 		Index = index;
 		Layer = layer;
 		Type = type;
@@ -64,6 +126,7 @@ public:
 namespace NeuralNetwork {
 	vector<vector<Node*>> Nodes = {};
 	vector<vector<vector<float>>> Weights = {};
+	float LR = 0.2;
 	void INIT(int inputs, int layers, int layer_width, int outputs) {
 		// Initialise the Nodes
 		Nodes.push_back({});
@@ -99,6 +162,9 @@ namespace NeuralNetwork {
 			}
 		}
 	}
+	float Sigmoid(float x) {
+		return 1/(1+pow(numbers::e, -x));
+	}
 	vector<float> Feed(vector<float> input) {
 		for (int i = 0; i < input.size(); i++) {
 			Nodes[0][i]->Value = input[i];
@@ -106,6 +172,7 @@ namespace NeuralNetwork {
 		for (int l = 1; l < Nodes.size(); l++) {
 			for (int i = 0; i < Nodes[l].size(); i++) {
 				Nodes[l][i]->FeedThrough(Nodes, Weights);
+				Nodes[l][i]->Value = Sigmoid(Nodes[l][i]->Value);
 			}
 		}
 		vector<float> toReturn = {};
@@ -114,45 +181,310 @@ namespace NeuralNetwork {
 		}
 		return toReturn;
 	}
-}
-
-
-int main() {
-	NeuralNetwork::INIT(8, 8, 16, 2);
-	vector<float> result = NeuralNetwork::Feed({1, 2, 3, 4, 5, 6, 7, 8});
-	for (float r : result) {
-		cout << r << "\n" << flush;
-	}
-	float BOT_X = 0;
-	float BOT_Y = 0;
-	float GOOD_X = 2;
-	float GOOD_Y = 3;
-	float BAD_X = -2;
-	float BAD_Y = 4;
-	system("cls");
-	int botx_r = round(BOT_X);
-	int boty_r = round(BOT_Y);
-	int goodx_r = round(GOOD_X);
-	int goody_r = round(GOOD_Y);
-	int badx_r = round(BAD_X);
-	int bady_r = round(BAD_Y);
-	string toPrint = "+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+";
-	for (int x = -10; x <= 10; x++) {
-		toPrint += "|\n+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+\n";
-		for (int y = 10; y >= -10; y--) {
-			toPrint += "|";
-			if (botx_r == x && boty_r == y) {
-				toPrint += "00";
-			} else if (badx_r == x && bady_r == y) {
-				toPrint += "--";
-			} else if (goodx_r == x && goody_r == y) {
-				toPrint += "++";
-			} else {
-				toPrint += "  ";
+	void Backpropagate(vector<float> target) {
+		for (int i = 0; i < Nodes[Nodes.size()-1].size(); i++){
+			float actual = Nodes[Nodes.size()-1][i]->Value;
+			float d = (target[i] - actual) * actual*(1-actual);
+			Nodes[Nodes.size()-1][i]->Delta = d;
+		}
+		for (int l = Nodes.size() - 2; l > 0; l--) {
+			for (int i = 0; i < Nodes[l].size(); i++) {
+				float actual = Nodes[l][i]->Value;
+				float sumNext = 0;
+				for (int j = 0; j < Nodes[l+1].size(); j++) {
+					sumNext += Weights[l][i][j] * Nodes[l+1][j]->Delta;
+				}
+				Nodes[l][i]->Delta = sumNext * (actual * (1 - actual));
+			}
+		}
+		for (int l = 0; l < Weights.size(); l++) {
+			for (int i = 0; i < Nodes[l].size(); i++) {
+				for (int j = 0; j < Nodes[l+1].size(); j++) {
+					Weights[l][i][j] += LR * Nodes[l][i]->Value * Nodes[l+1][j]->Delta;
+				}
+			}
+		}
+		for (int l = 1; l < Nodes.size(); l++) {
+			for (int i = 0; i < Nodes[l].size(); i++) {
+				Nodes[l][i]->Bias += LR * Nodes[l][i]->Delta;
 			}
 		}
 	}
-	toPrint += "|\n+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+";
-	cout << toPrint << flush;
+}
+
+string colour(string_view text, int r, int g, int b) {
+	return format("\x1b[38;2;{};{};{}m{}\x1b[0m", r, g, b, text);
+}
+
+namespace GUESS_FUNC {
+	const vector<vector<float>> LRs = {{1, 0.8}, {0.4, 0.5}, {0.08, 0.3}, {0.05, 0.2}, {0.03, 0.1}, {0.02, 0.05}, {0.01, 0.025}};
+	void INIT() {
+		NeuralNetwork::INIT(2, 4, 16, 1);
+	}
+	float TRUE_INTENSITY(float x, float y) {
+		//return (sin(x) + 1) * (tanh(y) + 1) / 4;
+		//return (sin(x) + sin(y)) / 4 + 0.5;
+		//return (sin(x+y)+1)/2;
+		//return (sin(0.5*x)*cos(x+0.5*y)+1)/2;
+		//return (sin(x)+sin(y/1.5)+sin((x+y))+3)/6;
+		//return (sin(pow(pow(x,2)+pow(y,2),0.5))+1)/2;
+		//return ((sin(0.5*x)*cos(x+0.5*y)+1)/2)*((sin(x)+1)/2)*((sin(y)+1)/2);
+		return (sin(x+y)+1)/2 * ((sin(x) + sin(y)) / 4 + 0.5);
+	}
+	float RUN(float min, float max, float step, int i) {
+		float sum_err = 0;
+		int count = pow(floor((max-min)/step),2);
+		vector<vector<float>> map = {};
+		vector<vector<float>> target = {};
+		vector<vector<float>> error = {};
+		float result;
+		for (float x = min; x <= max; x += step) {
+			map.push_back({});
+			target.push_back({});
+			error.push_back({});
+			for (float y = min; y <= max; y += step) {
+				result = NeuralNetwork::Feed({x, y})[0];
+				map[map.size()-1].push_back(result);
+				target[target.size()-1].push_back(TRUE_INTENSITY(x, y));
+				sum_err += pow(TRUE_INTENSITY(x, y) - result, 2);
+				error[error.size()-1].push_back(abs(result-TRUE_INTENSITY(x, y)));
+			}
+		}
+		string tocout;
+		for (int y = 0; y < map.size(); y++) {
+			tocout += "\n";
+			for (int x = 0; x < map.size(); x++) {
+				tocout += colour("\u2588\u2588", map[x][y]*255, map[x][y]*255, map[x][y]*255);
+			}
+			tocout += "    ";
+			for (int x = 0; x < map.size(); x++) {
+				tocout += colour("\u2588\u2588", target[x][y]*255, target[x][y]*255, target[x][y]*255);
+				/*if (error[x][y] > 0.5) {
+					tocout += colour("\u2588\u2588", (2*error[x][y]-0.5)*255, 0, 0);
+				} else {
+					tocout += colour("\u2588\u2588", 0, 255-2*error[x][y]*255, 0);
+				}*/
+			}
+		}
+		sum_err /= count;
+		clear();
+		cout << tocout << "\nIteration: " << i << "\nLearning Rate: " << NeuralNetwork::LR << "\n" << sum_err << flush;
+		return sum_err;
+	}
+	void GO(int iterations, float min, float max, float step) {
+		INIT();
+		if (iterations == -1) {
+			iterations = 10000;
+		}
+		for (int i = 0; i < iterations; i++) {
+			//clear();
+			for (int t = 0; t < 10000; t++) {
+				float rx = RANDOM(min, max, 4);
+				float ry = RANDOM(min, max, 4);
+
+				vector<float> actual = NeuralNetwork::Feed({rx, ry});
+				float target = TRUE_INTENSITY(rx, ry);
+				NeuralNetwork::Backpropagate({target});
+			}
+			float result = RUN(min, max, step, i);
+			if (result < 0.001) { return; }
+			if (result > LRs[0][0]) {
+				NeuralNetwork::LR = 1;
+			} else {
+				for (vector<float> LR : LRs) {
+					if (result < LR[0]) {
+						NeuralNetwork::LR = LR[1];
+					} else {
+						break;
+					}
+				}
+			}
+		}
+	}
+}
+
+namespace RECREATE_IMG {
+	const vector<vector<float>> LRs = {{1, 0.8}, {0.4, 0.5}, {0.08, 0.3}, {0.05, 0.2}, {0.03, 0.1}, {0.02, 0.05}, {0.01, 0.025}};
+	void INIT() {
+		NeuralNetwork::INIT(2, 4, 16, 3);
+	}
+	vector<float> TRUE_PIXEL(int x, int y, Image3D& img) {
+		return {img[x][y][0]/255.0f, img[x][y][1]/255.0f, img[x][y][2]/255.0f};
+	}
+	float RUN(Image3D& image_data, int i) {
+		cout << "RUN" << endl;
+		float sum_err = 0;
+		int countX = image_data.size();
+		int countY = image_data[0].size();
+		Image3D map = {};
+		Image3D target = {};
+		//Image3D error = {};
+		vector<float> result;
+		for (float x = 0; x < countX; x += 1) {
+			//cout << "LOOPX" << endl;
+			map.push_back({});
+			target.push_back({});
+			//error.push_back({});
+			for (float y = 0; y < countY; y += 1) {
+				//cout << "LOOPY" << endl;
+				result = NeuralNetwork::Feed({x, y});
+				float rR = result[0];
+				float rG = result[1];
+				float rB = result[2];
+				float tR = TRUE_PIXEL(x, y, image_data)[0];
+				float tG = TRUE_PIXEL(x, y, image_data)[1];
+				float tB = TRUE_PIXEL(x, y, image_data)[2];
+				map[map.size()-1].push_back({(int) (rR*255), (int) (rG*255), (int) (rB*255)});
+				target[target.size()-1].push_back({(int) (tR*255), (int) (tG*255), (int) (tB*255)});
+				sum_err += pow(tR - rR, 2)/3;
+				sum_err += pow(tG - rG, 2)/3;
+				sum_err += pow(tB - rB, 2)/3;
+				//error[error.size()-1].push_back(abs(result-TRUE_PIXEL(x, y)));
+			}
+		}
+		cout << countX << "|" << countY << endl;
+		string tocout;
+		for (int y = 0; y < map[0].size(); y++) {
+			tocout += "\n";
+			for (int x = 0; x < map.size(); x++) {
+				tocout += colour("\u2588\u2588", map[x][y][0], map[x][y][1], map[x][y][2]);
+			}
+			tocout += "    ";
+			for (int x = 0; x < map.size(); x++) {
+				tocout += colour("\u2588\u2588", target[x][y][0], target[x][y][1], target[x][y][2]);
+				/*if (error[x][y] > 0.5) {
+					tocout += colour("\u2588\u2588", (2*error[x][y]-0.5)*255, 0, 0);
+				} else {
+					tocout += colour("\u2588\u2588", 0, 255-2*error[x][y]*255, 0);
+				}*/
+			}
+		}
+		sum_err /= countX*countY;
+		clear();
+		cout << tocout << "\nIteration: " << i << "\nLearning Rate: " << NeuralNetwork::LR << "\n" << sum_err << flush;
+		return sum_err;
+	}
+	void GO(int iterations, string image_source) {
+		Image3D img = pngToVector(image_source.c_str());
+		INIT();
+		if (iterations == -1) {
+			iterations = 10000;
+		}
+		for (int i = 0; i < iterations; i++) {
+			//clear();
+			for (int t = 0; t < 10000; t++) {
+				float rx = round(RANDOM(0, img.size()-1, 0));
+				float ry = round(RANDOM(0, img[0].size()-1, 0));
+
+				vector<float> actual = NeuralNetwork::Feed({rx, ry});
+				vector<float> target = TRUE_PIXEL(rx, ry, img);
+				NeuralNetwork::Backpropagate(target);
+			}
+			float result = RUN(img, i);
+			if (result < 0.001) { return; }
+			if (result > LRs[0][0]) {
+				NeuralNetwork::LR = 1;
+			} else {
+				for (vector<float> LR : LRs) {
+					if (result < LR[0]) {
+						NeuralNetwork::LR = LR[1];
+					} else {
+						break;
+					}
+				}
+			}
+		}
+	}
+}
+
+typedef vector<vector<float>> PerlinNoise;
+
+/*namespace TOPOLOGY {
+	const vector<vector<float>> LRs = {{1, 0.8}, {0.4, 0.5}, {0.08, 0.3}, {0.05, 0.2}, {0.03, 0.1}, {0.02, 0.05}, {0.01, 0.025}};
+	void INIT() {
+		NeuralNetwork::INIT(2, 4, 16, 1);
+	}
+	float TRUE_INTENSITY(float x, float y, PerlinNoise perlin_noise) {
+		
+	}
+	float RUN(float min, float max, float step, int i) {
+		float sum_err = 0;
+		int count = pow(floor((max-min)/step),2);
+		vector<vector<float>> map = {};
+		vector<vector<float>> target = {};
+		vector<vector<float>> error = {};
+		float result;
+		for (float x = min; x <= max; x += step) {
+			map.push_back({});
+			target.push_back({});
+			error.push_back({});
+			for (float y = min; y <= max; y += step) {
+				result = NeuralNetwork::Feed({x, y})[0];
+				map[map.size()-1].push_back(result);
+				target[target.size()-1].push_back(TRUE_INTENSITY(x, y));
+				sum_err += pow(TRUE_INTENSITY(x, y) - result, 2);
+				error[error.size()-1].push_back(abs(result-TRUE_INTENSITY(x, y)));
+			}
+		}
+		string tocout;
+		for (int y = 0; y < map.size(); y++) {
+			tocout += "\n";
+			for (int x = 0; x < map.size(); x++) {
+				tocout += colour("\u2588\u2588", map[x][y]*255, map[x][y]*255, map[x][y]*255);
+			}
+			tocout += "    ";
+			for (int x = 0; x < map.size(); x++) {
+				tocout += colour("\u2588\u2588", target[x][y]*255, target[x][y]*255, target[x][y]*255);
+				if (error[x][y] > 0.5) {
+					tocout += colour("\u2588\u2588", (2*error[x][y]-0.5)*255, 0, 0);
+				} else {
+					tocout += colour("\u2588\u2588", 0, 255-2*error[x][y]*255, 0);
+				}
+			}
+		}
+		sum_err /= count;
+		clear();
+		cout << tocout << "\nIteration: " << i << "\nLearning Rate: " << NeuralNetwork::LR << "\n" << sum_err << flush;
+		return sum_err;
+	}
+	void GO(int iterations, float min, float max, float step) {
+		INIT();
+		if (iterations == -1) {
+			iterations = 10000;
+		}
+		for (int i = 0; i < iterations; i++) {
+			//clear();
+			for (int t = 0; t < 10000; t++) {
+				float rx = RANDOM(min, max, 4);
+				float ry = RANDOM(min, max, 4);
+
+				vector<float> actual = NeuralNetwork::Feed({rx, ry});
+				float target = TRUE_INTENSITY(rx, ry);
+				NeuralNetwork::Backpropagate({target});
+			}
+			float result = RUN(min, max, step, i);
+			if (result < 0.001) { return; }
+			if (result > LRs[0][0]) {
+				NeuralNetwork::LR = 1;
+			} else {
+				for (vector<float> LR : LRs) {
+					if (result < LR[0]) {
+						NeuralNetwork::LR = LR[1];
+					} else {
+						break;
+					}
+				}
+			}
+		}
+	}
+}*/
+
+int main() {
+	std::ios_base::sync_with_stdio(false);
+	std::cin.tie(NULL);
+	cout << "TO GO";
+	//TOPOLOGY::GO(-1);
+	GUESS_FUNC::GO(-1, -8, 8, 0.4);
+	//RECREATE_IMG::GO(-1, "Typhoon.png");
 	return 0;
 }

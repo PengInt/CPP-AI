@@ -1,4 +1,4 @@
-compile = "make -s"
+compile = "make clean && make -s"
 
 run = "./main"
 entrypoint = "main.cpp"
