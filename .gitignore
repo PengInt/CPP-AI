@@ -32,4 +32,4 @@
 *.app
 
 #Make Things
-Makefile
+makefile
