@@ -1,4 +1,5 @@
-compile = "make clean && make -s"
+#compile = "make clean && make -s"
+compile = "make -s"
 
 run = "./main"
 entrypoint = "main.cpp"

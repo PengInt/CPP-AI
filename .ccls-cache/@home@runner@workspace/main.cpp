@@ -217,7 +217,7 @@ string colour(string_view text, int r, int g, int b) {
 }
 
 namespace GUESS_FUNC {
-	const vector<vector<float>> LRs = {{1, 0.8}, {0.4, 0.5}, {0.08, 0.3}, {0.05, 0.2}, {0.03, 0.1}, {0.02, 0.05}, {0.01, 0.025}};
+	const vector<vector<float>> LRs = {{1, 0.8}, {0.4, 0.5}, {0.08, 0.3}, {0.05, 0.2}, {0.03, 0.1}, {0.02, 0.05}, {0.01, 0.025}, {0.005, 0.0175}, {0.001, 0.01}};
 	void INIT() {
 		NeuralNetwork::INIT(2, 4, 16, 1);
 	}
@@ -229,7 +229,10 @@ namespace GUESS_FUNC {
 		//return (sin(x)+sin(y/1.5)+sin((x+y))+3)/6;
 		//return (sin(pow(pow(x,2)+pow(y,2),0.5))+1)/2;
 		//return ((sin(0.5*x)*cos(x+0.5*y)+1)/2)*((sin(x)+1)/2)*((sin(y)+1)/2);
-		return (sin(x+y)+1)/2 * ((sin(x) + sin(y)) / 4 + 0.5);
+		//return (sin(x+y)+1)/2 * ((sin(x) + sin(y)) / 4 + 0.5);
+		//return (sin(x/2)*sin(x/2)+sin(y/2)*sin(y/2))/2;
+		//return (sin(x+y)/2+0.5)/2+(sin(x)*sin(y)/4+0.5)/2;
+		return (1/(1+abs(tan(x/5))))*(1/(1+abs(tan(y/5))));
 	}
 	float RUN(float min, float max, float step, int i) {
 		float sum_err = 0;
@@ -287,7 +290,7 @@ namespace GUESS_FUNC {
 				NeuralNetwork::Backpropagate({target});
 			}
 			float result = RUN(min, max, step, i);
-			if (result < 0.001) { return; }
+			if (result < 0.0001) { return; }
 			if (result > LRs[0][0]) {
 				NeuralNetwork::LR = 1;
 			} else {
@@ -304,15 +307,14 @@ namespace GUESS_FUNC {
 }
 
 namespace RECREATE_IMG {
-	const vector<vector<float>> LRs = {{1, 0.8}, {0.4, 0.5}, {0.08, 0.3}, {0.05, 0.2}, {0.03, 0.1}, {0.02, 0.05}, {0.01, 0.025}};
+	const vector<vector<float>> LRs = {{1, 0.8}, {0.4, 0.5}, {0.08, 0.3}, {0.05, 0.2}, {0.03, 0.1}, {0.02, 0.05}, {0.01, 0.025}, {0.005, 0.0175}, {0.001, 0.01}};
 	void INIT() {
-		NeuralNetwork::INIT(2, 4, 16, 3);
+		NeuralNetwork::INIT(2, 4, 4, 3);
 	}
 	vector<float> TRUE_PIXEL(int x, int y, Image3D& img) {
 		return {img[x][y][0]/255.0f, img[x][y][1]/255.0f, img[x][y][2]/255.0f};
 	}
 	float RUN(Image3D& image_data, int i) {
-		cout << "RUN" << endl;
 		float sum_err = 0;
 		int countX = image_data.size();
 		int countY = image_data[0].size();
@@ -342,7 +344,6 @@ namespace RECREATE_IMG {
 				//error[error.size()-1].push_back(abs(result-TRUE_PIXEL(x, y)));
 			}
 		}
-		cout << countX << "|" << countY << endl;
 		string tocout;
 		for (int y = 0; y < map[0].size(); y++) {
 			tocout += "\n";
@@ -381,7 +382,7 @@ namespace RECREATE_IMG {
 				NeuralNetwork::Backpropagate(target);
 			}
 			float result = RUN(img, i);
-			if (result < 0.001) { return; }
+			if (result < 0.0001) { return; }
 			if (result > LRs[0][0]) {
 				NeuralNetwork::LR = 1;
 			} else {
@@ -479,12 +480,91 @@ typedef vector<vector<float>> PerlinNoise;
 	}
 }*/
 
+namespace HideAndSeek {
+	typedef vector<float> LineFunc;
+	float intersect(LineFunc& a, LineFunc& b) {
+		return (b[1]-a[1])/(a[0]-b[0]);
+	}
+	const vector<vector<float>> LRs = {{1, 0.8}, {0.4, 0.5}, {0.08, 0.3}, {0.05, 0.2}, {0.03, 0.1}, {0.02, 0.05}, {0.01, 0.025}, {0.005, 0.0175}, {0.001, 0.01}};
+	void INIT() {
+		NeuralNetwork::INIT(6, 4, 16, 1);
+	}
+	float RUN() {
+		vector<float> AI = {RANDOM(33, 40, 1), RANDOM(33, 40, 1)};
+		vector<float> SEEK = {RANDOM(0, 7, 1), RANDOM(0, 7, 1)};
+
+		vector<int> wall_bottom = {(int) RANDOM(8, 16, 0), (int) RANDOM(24, 32, 0)};
+		vector<int> wall_top = {(int) RANDOM(24, 32, 0), (int) RANDOM(8, 16, 0)};
+		float a = ((float) (wall_top[1]-wall_bottom[1]))/((float) (wall_top[0]-wall_bottom[0]));
+		float b = wall_bottom[1]-a*wall_bottom[0];
+		LineFunc line_func = {a, b};
+
+		cout << "LB" << endl;
+		while (true) {
+			cout << "IL" << endl;
+			vector<float> actual = NeuralNetwork::Feed({(float) wall_bottom[0], (float) wall_bottom[1], AI[0], AI[1], SEEK[0], SEEK[1]});
+			cout << "BLF" << endl;
+			LineFunc actual_func = {tan(actual[0]), AI[1]-tan(actual[0])*AI[0]};
+			cout << "ALF" << endl;
+			float tx = intersect(line_func, actual_func);
+			vector<float> p2 = {cos(actual[0])+AI[0], sin(actual[0])*actual[1] + actual[1]};
+			cout << "FIRST IF BEFORE" << flush;
+			if (wall_bottom[0] <= tx && tx <= wall_top[0]) {
+				if (AI[0] < p2[0]) {
+					if (AI[0] <= tx && tx <= p2[0]) {
+						break;
+					}
+				} else {
+					if (p2[0] <= tx && tx <= AI[0]) {
+						break;
+					}
+				}
+			}
+			AI[0] = p2[0];
+			AI[1] = p2[1];
+
+			float a = ((float) (AI[1]-SEEK[1]))/((float) (AI[0]-SEEK[0]));
+			float b = SEEK[1]-a*SEEK[0];
+			LineFunc hide_seek_func = {a, b};
+
+			float x = intersect(line_func, hide_seek_func);
+			if (wall_bottom[0] <= x && x <= wall_top[0]) {
+				break;
+			}
+
+			if (40 < AI[0] || AI[0] < 0 || 40 < AI[1] || AI[1] < 0) {
+				break;
+			}
+
+			clear();
+			for (int x = 0; x <= 40; x++) {
+				for (int y = 0; y <= 40; y++) {
+					if (round(AI[0]) == x && round(AI[1]) == y) {
+						cout << colour("\u2588\u2588", 0, 255, 255) << flush;
+					} else if (round(SEEK[0]) == x && round(SEEK[1]) == y) {
+						cout << colour("\u2588\u2588", 255, 0, 0) << flush;
+					} else if (x >= wall_bottom[0] && x <= wall_top[0] && round(line_func[0]*x+line_func[1]) == y) {
+						cout << colour("\u2588\u2588", 255, 255, 255) << flush;
+					} else {
+						cout << "  " << flush;
+					}
+				}
+				cout << "\n";
+			}
+		}
+		return 0;
+	}
+	void GO() {
+		
+	}
+}
+
 int main() {
 	std::ios_base::sync_with_stdio(false);
 	std::cin.tie(NULL);
-	cout << "TO GO";
+	//GUESS_FUNC::GO(-1, -8, 8, 0.4);
+	//RECREATE_IMG::GO(-1, "Colour Mix 2.png");
 	//TOPOLOGY::GO(-1);
-	GUESS_FUNC::GO(-1, -8, 8, 0.4);
-	//RECREATE_IMG::GO(-1, "Typhoon.png");
+	HideAndSeek::RUN();
 	return 0;
 }
